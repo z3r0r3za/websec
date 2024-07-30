@@ -6,9 +6,11 @@ import signal
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 """ 03_unioncolumns.py #########################################################
-OrderBy: python3 03_unioncolumns.py uc orderby https://website.net "/filter?category=Gifts"'
-Union: python3 03_unioncolumns.py uc union https://website.net "/filter?category=Gifts"'
-https://portswigger.net/web-security/sql-injection/union-attacks/lab-determine-number-of-columns"
+Lab: SQL injection UNION attack, determining the number of columns returned by the query
+https://portswigger.net/web-security/sql-injection/union-attacks/lab-determine-number-of-columns
+
+OrderBy: python3 03_unioncolumns.py uc orderby https://website.net "/filter?category=Gifts"
+Union: python3 03_unioncolumns.py uc union https://website.net "/filter?category=Gifts"
 
 SQLi UNION (and ORDER BY) attack, where the number of columns is determined when
 the query is returned. The vulnerability is in the product category filter.

@@ -10,6 +10,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Proxies for Burp.
 proxies = {'http': 'http://127.0.0.1:8080', 'https': 'http://127.0.0.1:8080'}
 
+""" 04_stringdata.py ############################################################
+Lab: SQL injection UNION attack, finding a column containing text
+https://portswigger.net/web-security/sql-injection/union-attacks/lab-find-column-containing-texts
+wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww """
+
 
 """ column_number(payload_type, url, path_param) ###############################
 

