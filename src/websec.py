@@ -10,12 +10,9 @@ import signal
 # import textwrap
 
 """ ############################################################################
-Webtest python script for testing web app vulnerabilities. 
+websec.py python script for testing web app vulnerabilities. 
 
-Inspired by Rana Khalil while taking her "Web Security Academy Series" Course.
-https://academy.ranakhalil.com/courses/
-
-Created while working on the portswigger web-security labs.
+Based on the portswigger web-security labs.
 https://portswigger.net/web-security/all-labs
 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww """
 
